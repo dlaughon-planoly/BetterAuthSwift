@@ -40,24 +40,51 @@ public actor HTTPClient: HTTPClientProtocol {
   private let decoder = JSONDecoder()
   private let pluginRegistry: PluginRegistry
   public let cookieStorage: CookieStorageProtocol
+    
+  private static func iso8601DateDecodingStrategy(decoder: Decoder) throws -> Date {
+    let container = try decoder.singleValueContainer()
+    let str = try container.decode(String.self)
+    let withFractional = ISO8601DateFormatter()
+    withFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+    if let date = withFractional.date(from: str) {
+        return date
+    }
+
+    let plain = ISO8601DateFormatter()
+    plain.formatOptions = [.withInternetDateTime]
+
+    if let date = plain.date(from: str) {
+        return date
+    }
+
+    throw DecodingError.dataCorruptedError(
+        in: container,
+        debugDescription: "Invalid ISO8601 date: \(str)"
+    )
+  }
 
   package init(
     baseURL: URL,
     scheme: String,
     pluginRegistry: PluginRegistry,
     cookieStorage: CookieStorageProtocol = CookieStorage(),
+    session: URLSession? = nil
   ) {
     self.baseURL = baseURL
     self.scheme = scheme
     self.pluginRegistry = pluginRegistry
     self.cookieStorage = cookieStorage
 
-    let config = URLSessionConfiguration.default
-    config.httpCookieAcceptPolicy = .always
-    config.httpCookieStorage = self.cookieStorage
-
-    self.session = URLSession(configuration: config)
-    decoder.dateDecodingStrategy = .iso8601
+    if let session = session {
+      self.session = session
+    } else {
+      let config = URLSessionConfiguration.default
+      config.httpCookieAcceptPolicy = .always
+      config.httpCookieStorage = self.cookieStorage
+      self.session = URLSession(configuration: config)
+    }
+    decoder.dateDecodingStrategy = .custom(HTTPClient.iso8601DateDecodingStrategy)
   }
 
   public init(
@@ -76,7 +103,7 @@ public actor HTTPClient: HTTPClientProtocol {
     config.httpCookieStorage = self.cookieStorage
 
     self.session = URLSession(configuration: config)
-    decoder.dateDecodingStrategy = .iso8601
+    decoder.dateDecodingStrategy = .custom(HTTPClient.iso8601DateDecodingStrategy)
   }
 
   private func performWillSend(
